@@ -112,7 +112,8 @@ export function findZedPath(): string | null {
       { encoding: 'utf-8', timeout: 3000, windowsHide: true },
     ).trim()
     const m = out.match(/^"([^"]+\.exe)"/)
-    if (m && existsSync(m[1])) { zedPathMemo = m[1]; return m[1] }
+    const p = m?.[1]
+    if (p && existsSync(p)) { zedPathMemo = p; return p }
   } catch { /* fall through */ }
   try {
     const out = execSync(
@@ -120,7 +121,8 @@ export function findZedPath(): string | null {
       { encoding: 'utf-8', timeout: 3000, windowsHide: true },
     ).trim()
     const m = out.match(/^"([^"]+\.exe)"/)
-    if (m && existsSync(m[1])) { zedPathMemo = m[1]; return m[1] }
+    const p = m?.[1]
+    if (p && existsSync(p)) { zedPathMemo = p; return p }
   } catch { /* fall through */ }
 
   zedPathMemo = null
