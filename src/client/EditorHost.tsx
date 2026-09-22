@@ -104,7 +104,17 @@ export function EditorHost(props: {
   onReferenceFile: (path: string, isDir: boolean) => void
 }) {
   const { ctx, store, scope, tab, expanded, revealed, onToggleDir, onReferenceFile } = props
-  const path = tab.path ?? ''
+  // A native file address may carry a WORKSPACE-RELATIVE path: `fileAddressFor`
+  // strips the session root, and the `dsh-resource://file/session/<id>/<path>`
+  // grammar admits both spellings (src/client/resource-address.ts). Every path
+  // this host hands downstream — fs.read, the media route, the html preview
+  // URL — is resolved by the HOST against the filesystem root alone (win32
+  // `path.resolve('/desktop/x.html')` = `C:\desktop\x.html`), so a relative
+  // seed must be joined onto the session cwd here, the one gate every native
+  // record passes through. The text previewer does not need this because its
+  // endpoint takes the session and resolves the relative path itself.
+  const tabPath = tab.path ?? ''
+  const path = tabPath === '' ? '' : resolveSidebarPath(scope.cwd, tabPath)
   const title = tab.title
   // A folder window: the model's `sidebar_open` (or any caller) opens a
   // directory as an editor tab carrying `meta.dir: true` with the directory

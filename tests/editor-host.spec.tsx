@@ -53,7 +53,7 @@ function setup(): {
 }
 
 /** Mount the host for one tab; returns the container and an unmount helper. */
-function mountHost(ctx: Context, store: ReturnType<typeof createSidebarStore>, tab: () => SidebarTab): {
+function mountHost(ctx: Context, store: ReturnType<typeof createSidebarStore>, tab: () => SidebarTab, cwd?: string): {
   container: HTMLDivElement
   rerender: () => void
   unmount: () => void
@@ -65,7 +65,7 @@ function mountHost(ctx: Context, store: ReturnType<typeof createSidebarStore>, t
     root.render(createElement(EditorHost, {
       ctx,
       store,
-      scope: { sessionId: 'editor-home-session' },
+      scope: { sessionId: 'editor-home-session', ...(cwd === undefined ? {} : { cwd }) },
       tab: tab(),
       expanded: [],
       revealed: [],
@@ -301,6 +301,56 @@ describe('EditorHost (files window)', () => {
       act(() => { buttons.find(b => b.textContent === 'Edit')!.click() })
       act(() => { header.querySelector<HTMLButtonElement>('button[aria-label="Save"]')!.click() })
       expect(calls).toEqual(['mode:edit', 'save'])
+    } finally {
+      unmount()
+    }
+  })
+
+  it('resolves a workspace-relative tab path onto the session cwd before handing it to the viewer', () => {
+    // A `dsh-resource://file/session/<id>/<path>` address may spell the path
+    // RELATIVE to the workspace root (`fileAddressFor` strips the root), and
+    // the native adapter copies it verbatim onto the synthetic tab. Every
+    // downstream consumer — fs.read, the media route, the html preview URL —
+    // resolves an absolute path against the FILESYSTEM root, so an unresolved
+    // relative seed made the html previewer request e.g.
+    // `/sidebar/html/<sid>/desktop/x.html` → host `C:\desktop\x.html` ENOENT.
+    const { store, ctx } = setup()
+    const seen: string[] = []
+    const Viewer = (viewerProps: FileViewerProps): ReactNode => {
+      seen.push(viewerProps.path)
+      return null
+    }
+    ctx.betterSidebar.registerFileViewer({ id: 'test:rel', exts: ['html'], fetchStrategy: 'none', component: Viewer })
+    ctx.betterSidebar.openTab({ type: 'editor', title: 'a.html', path: 'desktop/a.html', id: 'editor:rel' })
+    const relTab = (): SidebarTab =>
+      allLeaves(store.getSnapshot().state!.bottomSplits).flatMap(leaf => leaf.tabs)
+        .find(tab => tab.path === 'desktop/a.html')!
+    const { unmount } = mountHost(ctx, store, relTab, 'C:\\dsh-ecosystem')
+    try {
+      // `resolveSidebarPath` joins with the cwd's own separator and keeps the
+      // address's `/` inside the relative segment (both are legal on win32
+      // and the html route splits on either).
+      expect(seen).toEqual(['C:\\dsh-ecosystem\\desktop/a.html'])
+    } finally {
+      unmount()
+    }
+  })
+
+  it('leaves an absolute tab path alone (the cwd is only the relative base)', () => {
+    const { store, ctx } = setup()
+    const seen: string[] = []
+    const Viewer = (viewerProps: FileViewerProps): ReactNode => {
+      seen.push(viewerProps.path)
+      return null
+    }
+    ctx.betterSidebar.registerFileViewer({ id: 'test:abs', exts: ['html'], fetchStrategy: 'none', component: Viewer })
+    ctx.betterSidebar.openTab({ type: 'editor', title: 'b.html', path: 'D:\\other\\b.html', id: 'editor:abs' })
+    const absTab = (): SidebarTab =>
+      allLeaves(store.getSnapshot().state!.bottomSplits).flatMap(leaf => leaf.tabs)
+        .find(tab => tab.path === 'D:\\other\\b.html')!
+    const { unmount } = mountHost(ctx, store, absTab, 'C:\\dsh-ecosystem')
+    try {
+      expect(seen).toContain('D:\\other\\b.html')
     } finally {
       unmount()
     }
